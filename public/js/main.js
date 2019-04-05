@@ -1,30 +1,9 @@
-// Computer makes a move with algorithm choice and skill/depth level
-var makeMove = function(algo, skill=3, options) {
-  // exit if the game is over
-  if (game.game_over() === true) {
-    console.log('game over');
-    return;
-  }
-  // Calculate the best move, using chosen algorithm
-  var move = null;
-  if (algo === 1) {
-    move = randomMove();
-  } else if (algo === 2) {
-    move = calcBestMoveOne(game.turn());
-  } else if (algo === 3) {
-    move = calcBestMoveNoAB(skill, game, game.turn())[1];
-  } else if (algo === 4) {
-    move = calcBestMove(skill, game, game.turn())[1];
-  }
-  else if (algo === 5) {
-    console.log("Running stockfish.js");
+function engineGame() {
+	var move = 0;
+	var engineStatus = {};
+	console.log("Running stockfish.js");
     // var game = engineGame({book: 'book.bin'});
-    options = options || {}
-    var engine = new Worker(options.stockfishjs || './stockfish.js');
-    function uciCmd(cmd) {
-        engine.postMessage(cmd);
-    }
-    uciCmd('uci');
+    var engine = new Worker('stockfish.js');
     console.log("A");
     function prepareMove() {
         var moves = '';
@@ -36,45 +15,93 @@ var makeMove = function(algo, skill=3, options) {
     }
     console.log("B");
     engine.onmessage = function(event) {
-        console.log("BA");
-        var line = event.data;
-        console.log("line:" + line);
-        var match = line.match(/^bestmove ([a-h][1-8])([a-h][1-8])([qrbk])?/);
-        if(match) {
-            move = ({from: match[1], to: match[2], promotion: match[3]});
-            //prepareMove();
-        }
+	    var line = event.data;
+        if(line == 'uciok') {
+            engineStatus.engineLoaded = true;
+        } else if(line == 'readyok') {
+            engineStatus.engineReady = true;
+        } else {
+	        //console.log("BA");
+	        console.log("line:", line);
+	        var match = line.match(/^bestmove ([a-h][1-8])([a-h][1-8])([qrbk])?/);
+	        console.log(match);
+	        if(match) {
+	            move = ({from: match[1], to: match[2], promotion: match[3]});
+	            console.log(move.toString());
+	            game.move(move);
+	            prepareMove();
+	        }
+			else if(match = line.match(/^info .*\bdepth (\d+) .*\bnps (\d+)/)) {
+	                engineStatus.search = 'Depth: ' + match[1] + ' Nps: ' + match[2];
+	        }
+    	}
     };
-    console.log("C");
-    if(options.book) {
-        //bookRequest.open('GET', options.book, true);
-        //https://github.com/bjedrzejewski/stockfish-js/blob/master/example/book.bin
-        var reader = new FileReader();
-
-        reader.onload = function(e) {
-          var rawData = reader.result;
-          engine.postMessage({book: reader.result});
-        }
-        reader.readAsBinaryString('book.bin');
-
-        // bookRequest.open('GET', './book.bin', true);
-        // bookRequest.responseType = "arraybuffer";
-        // console.log("CAC");
-        // bookRequest.onload = function(event) {
-        //     console.log("CB");
-        //     engine.postMessage({book: bookRequest.response});
-        //     console.log("CC");
-        // };
-        // bookRequest.send(null);
+    engine.onmessageerror = function() { console.log("unkown error"); };
+    function uciCmd(cmd) {
+        engine.postMessage(cmd);
     }
-    console.log("D");
-    console.log(move.toString());
+    uciCmd('uci');
+    console.log("C");
+    var bookRequest = new XMLHttpRequest();
+    //console.log(bookRequest.status);
+    bookRequest.open('GET', 'book.bin', true);
+    //console.log(bookRequest.status);
+    bookRequest.responseType = "arraybuffer";
+    //console.log(bookRequest.status);
+    bookRequest.onload = function(event) {
+    	//console.log(bookRequest.status);
+        //console.log("loaded book");
+        engine.postMessage({book: bookRequest.response});
+        //console.log("sent book");
+        //console.log(bookRequest.response);
+    };
+    bookRequest.send(null);
+    return {
+    	start: function () {
+    		uciCmd('ucinewgame');
+            uciCmd('isready');
+            prepareMove();
+    	},
+    	move: function() {
+    		return move;
+    	}
+    }
+}
+
+// Computer makes a move with algorithm choice and skill/depth level
+var makeMove = function(algo, skill=3) {
+  // exit if the game is over
+  if (game.game_over() === true) {
+    console.log('game over');
+    return;
+  }
+  // Calculate the best move, using chosen algorithm
+  var move = null;
+  if (algo === 1) {
+    move = randomMove();
+      // Make the calculated move
+  game.move(move);
+  } else if (algo === 2) {
+    move = calcBestMoveOne(game.turn());
+      // Make the calculated move
+  game.move(move);
+  } else if (algo === 3) {
+    move = calcBestMoveNoAB(skill, game, game.turn())[1];
+      // Make the calculated move
+  game.move(move);
+  } else if (algo === 4) {
+    move = calcBestMove(skill, game, game.turn())[1];
+	  // Make the calculated move
+	  game.move(move);
+  }
+  else if (algo === 5) {
+  	var AI = engineGame();
+  	AI.start();
+  	//move = AI.move();
   }
   else {
     console.log("Uknown algorithm.");
   }
-  // Make the calculated move
-  game.move(move);
   // Update board positions
   board.position(game.fen());
 }
@@ -87,7 +114,7 @@ var playGame = function(algo=4, skillW=2, skillB=2) {
     return;
   }
   var skill = game.turn() === 'w' ? skillW : skillB;
-  makeMove(algo, skill, {book: 'book.bin'});
+  makeMove(algo, skill);
   window.setTimeout(function() {
     playGame(algo, skillW, skillB);
   }, 250);
@@ -108,9 +135,8 @@ var onDrop = function(source, target) {
 
   // Log the move
   console.log(move)
-
   // make move for black
   window.setTimeout(function() {
-    makeMove(5, 3, {book: 'book.bin'});
+    makeMove(5, 3);
   }, 250);
 };
